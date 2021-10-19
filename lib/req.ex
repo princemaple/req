@@ -179,6 +179,7 @@ defmodule Req do
   def prepend_default_steps(request, options \\ []) do
     request_steps =
       [
+        {Req, :parse_url, []},
         {Req, :encode_headers, []},
         {Req, :default_headers, []},
         {Req, :encode, []}
@@ -406,6 +407,15 @@ defmodule Req do
   end
 
   ## Request steps
+
+  def parse_url(%{uri: %{scheme: "http+unix"}} = request) do
+    unix_socket = URI.decode_www_form(request.uri.host)
+    %{request | uri: %{request.uri | scheme: "http", host: "localhost"}, unix_socket: unix_socket}
+  end
+
+  def parse_url(request) do
+    request
+  end
 
   @doc """
   Sets request authentication.
