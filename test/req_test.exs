@@ -358,6 +358,27 @@ defmodule ReqTest do
   end
 
   @tag :tmp_dir
+  test ".req.exs", c do
+    pid = self()
+
+    Bypass.expect(c.bypass, "GET", "/", fn conn ->
+      send(pid, {:params, conn.params})
+      Plug.Conn.send_resp(conn, 200, "ok")
+    end)
+
+    dot_req_path = Path.join(c.tmp_dir, ".req.exs")
+
+    File.write!(dot_req_path, """
+    [
+      params: [foo: :bar]
+    ]
+    """)
+
+    Req.get!(c.url, dot_req: dot_req_path)
+    assert_received {:params, %{"foo" => "bar"}}
+  end
+
+  @tag :tmp_dir
   test "load_netrc/2", c do
     Bypass.expect(c.bypass, "GET", "/auth", fn conn ->
       expected = "Basic " <> Base.encode64("foo:bar")

@@ -378,6 +378,8 @@ defmodule Req do
   """
   @doc api: :request
   def put_default_steps(request, options \\ []) do
+    options = maybe_load_dot_req(options)
+
     request_steps =
       [
         {Req, :encode_headers, []},
@@ -414,6 +416,45 @@ defmodule Req do
   defp maybe_steps(nil, _step), do: []
   defp maybe_steps(false, _step), do: []
   defp maybe_steps(_, steps), do: steps
+
+  defp maybe_load_dot_req(options) do
+    case Keyword.fetch(options, :dot_req) do
+      {:ok, false} ->
+        options
+
+      {:ok, path} ->
+        case load_dot_req(path) do
+          {:ok, keyword} ->
+            Keyword.merge(keyword, options)
+
+          {:error, reason} ->
+            raise "couldn't read #{path}: #{reason}"
+        end
+
+      :error ->
+        path = Path.join(System.user_home!(), ".req.exs")
+
+        case load_dot_req(path) do
+          {:ok, keyword} ->
+            Keyword.merge(keyword, options)
+
+          {:error, :enoent} ->
+            options
+        end
+    end
+  end
+
+  defp load_dot_req(path) do
+    with {:ok, contents} <- File.read(path) do
+      {term, _binding} = Code.eval_string(contents)
+
+      unless Keyword.keyword?(term) do
+        raise "expected #{path} to evaluate to a keyword list"
+      end
+
+      {:ok, term}
+    end
+  end
 
   @doc """
   Sets request authentication.
