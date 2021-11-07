@@ -238,63 +238,69 @@ defmodule Req do
   end
 
   defp run_request(request) do
-    steps = request.request_steps
-
-    Enum.reduce_while(steps, request, fn step, acc ->
-      case run_step(step, acc) do
-        %Req.Request{} = request ->
-          {:cont, request}
-
-        {%Req.Request{halted: true}, response_or_exception} ->
-          {:halt, result(response_or_exception)}
-
-        {request, %Req.Response{} = response} ->
-          {:halt, run_response(request, response)}
-
-        {request, %{__exception__: true} = exception} ->
-          {:halt, run_error(request, exception)}
-      end
-    end)
+    request = %{request | next_steps: request.request_steps}
+    run_request_steps(request.next_steps, request)
   end
 
-  defp run_response(request, response) do
-    steps = request.response_steps
+  defp run_request_steps([step | tail], request) do
+    request = %{request | next_steps: tail}
 
-    {_request, response_or_exception} =
-      Enum.reduce_while(steps, {request, response}, fn step, {request, response} ->
-        case run_step(step, {request, response}) do
-          {%Req.Request{halted: true} = request, response_or_exception} ->
-            {:halt, {request, response_or_exception}}
+    case run_step(step, request) do
+      %Req.Request{} = request ->
+        request = %{request | next_steps: tail}
+        run_request_steps(request.next_steps, request)
 
-          {request, %Req.Response{} = response} ->
-            {:cont, {request, response}}
+      {%Req.Request{halted: true}, response_or_exception} ->
+        result(response_or_exception)
 
-          {request, %{__exception__: true} = exception} ->
-            {:halt, run_error(request, exception)}
-        end
-      end)
+      {request, %Req.Response{} = response} ->
+        request = %{request | next_steps: request.response_steps}
+        run_response_steps(request.next_steps, request, response)
 
-    result(response_or_exception)
+      {request, %{__exception__: true} = exception} ->
+        request = %{request | next_steps: request.error_steps}
+        run_error_steps(request.next_steps, request, exception)
+    end
   end
 
-  defp run_error(request, exception) do
-    steps = request.error_steps
+  defp run_response_steps([step | tail], request, response) do
+    request = %{request | next_steps: tail}
 
-    {_request, response_or_exception} =
-      Enum.reduce_while(steps, {request, exception}, fn step, {request, exception} ->
-        case run_step(step, {request, exception}) do
-          {%Req.Request{halted: true} = request, response_or_exception} ->
-            {:halt, {request, response_or_exception}}
+    case run_step(step, {request, response}) do
+      {%Req.Request{halted: true}, response_or_exception} ->
+        result(response_or_exception)
 
-          {request, %{__exception__: true} = exception} ->
-            {:cont, {request, exception}}
+      {request, %Req.Response{} = response} ->
+        run_response_steps(request.next_steps, request, response)
 
-          {request, %Req.Response{} = response} ->
-            {:halt, run_response(request, response)}
-        end
-      end)
+      {request, %{__exception__: true} = exception} ->
+        request = %{request | next_steps: request.error_steps}
+        run_error_steps(request.next_steps, request, exception)
+    end
+  end
 
-    result(response_or_exception)
+  defp run_response_steps([], _request, response) do
+    {:ok, response}
+  end
+
+  defp run_error_steps([step | tail], request, exception) do
+    request = %{request | next_steps: tail}
+
+    case run_step(step, {request, exception}) do
+      {%Req.Request{halted: true}, response_or_exception} ->
+        result(response_or_exception)
+
+      {request, %{__exception__: true} = exception} ->
+        run_error_steps(request.next_steps, request, exception)
+
+      {request, %Req.Response{} = response} ->
+        request = %{request | next_steps: request.response_steps}
+        run_response_steps(request.next_steps, request, response)
+    end
+  end
+
+  defp run_error_steps([], _request, exception) do
+    {:error, exception}
   end
 
   defp run_step({module, function, args}, arg) do

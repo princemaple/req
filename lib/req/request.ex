@@ -37,8 +37,11 @@ defmodule Req.Request do
     request_steps: [],
     response_steps: [],
     error_steps: [],
-    private: %{}
+    private: %{},
+    next_steps: []
   ]
+
+  @derive {Inspect, except: [:next_steps]}
 
   @doc """
   Gets the value for a specific private `key`.
